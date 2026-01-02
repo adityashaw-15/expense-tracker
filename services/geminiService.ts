@@ -2,10 +2,19 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Transaction, SpendingInsight } from "../types";
 
-// Fix: Strictly use process.env.API_KEY for initialization as required by @google/genai coding guidelines.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Safety check for initialization
+const apiKey = process.env.API_KEY || "";
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 export const getFinancialInsights = async (transactions: Transaction[]): Promise<SpendingInsight> => {
+  if (!ai) {
+    return {
+      summary: "AI services are currently offline. Please configure API_KEY in deployment settings.",
+      recommendations: ["Check your environment variables."],
+      savingOpportunities: "Missing Google Gemini credentials."
+    };
+  }
+
   if (transactions.length === 0) {
     return {
       summary: "Your premium financial journey begins here. Start logging to unlock AI insights.",
@@ -71,6 +80,7 @@ export const getFinancialInsights = async (transactions: Transaction[]): Promise
 };
 
 export const suggestCategory = async (description: string): Promise<string> => {
+  if (!ai) return "Others";
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",

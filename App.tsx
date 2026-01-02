@@ -28,8 +28,13 @@ const itemVariants: Variants = {
 
 const App: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('smarttrack_v5_in');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('smarttrack_v5_in');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Corrupted local storage detected:", e);
+      return [];
+    }
   });
   const [insight, setInsight] = useState<SpendingInsight | null>(null);
   const [isInsightLoading, setIsInsightLoading] = useState(false);
@@ -53,7 +58,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchInsights();
-  }, []);
+  }, [fetchInsights]);
 
   const addTransaction = (newTx: Omit<Transaction, 'id'>) => {
     const tx: Transaction = {
@@ -69,6 +74,11 @@ const App: React.FC = () => {
 
   const totalSpent = transactions.reduce((acc, curr) => acc + curr.amount, 0);
   const healthScore = transactions.length > 0 ? 94 : 0;
+
+  // Global environment check
+  if (!process.env.API_KEY) {
+    console.warn("SmartTrack Warning: process.env.API_KEY is missing. AI features will be disabled.");
+  }
 
   return (
     <div className="min-h-screen bg-[#020202] text-white selection:bg-amber-500/30 font-inter">
@@ -191,7 +201,12 @@ const App: React.FC = () => {
                 </div>
               </div>
               
-              {isInsightLoading ? (
+              {!process.env.API_KEY ? (
+                <div className="py-8 text-amber-500/50 text-xs font-mono uppercase tracking-widest text-center border border-amber-500/10 rounded-3xl p-4">
+                  [ System Warning: AI Insight Engine Offline ]<br/>
+                  Configuration Error: Missing API_KEY in Environment
+                </div>
+              ) : isInsightLoading ? (
                 <div className="space-y-6 animate-pulse">
                   <div className="h-4 bg-neutral-800/50 rounded-full w-full"></div>
                   <div className="h-4 bg-neutral-800/50 rounded-full w-2/3"></div>
