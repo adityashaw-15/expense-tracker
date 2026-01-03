@@ -9,6 +9,23 @@ export type Category =
   | 'Travel'
   | 'Others';
 
+export type ViewState = 'auth' | 'landing' | 'onboarding' | 'dashboard' | 'profile';
+export type Theme = 'light' | 'dark';
+
+export interface UserProfile {
+  name: string;
+  email?: string;
+  picture?: string;
+  monthlyIncome: number;
+  housingStatus: 'owned' | 'rented';
+  // Tactical Targets for AI Baseline
+  baselineRent: number;
+  baselineGroceries: number;
+  baselineUtilities: number;
+  setupComplete: boolean;
+  isAuthenticated: boolean;
+}
+
 export interface Transaction {
   id: string;
   amount: number;
@@ -22,23 +39,24 @@ export interface SpendingInsight {
   summary: string;
   recommendations: string[];
   savingOpportunities: string;
+  budgetAdherence: number;
 }
 
 export interface ChartDataPoint {
   name: string;
   value: number;
-  category?: Category;
   monthIndex?: number;
-  [key: string]: any;
+  category?: Category;
+  [key: string]: string | number | boolean | undefined;
 }
 
 export const CATEGORY_METALLICS: Record<Category, string> = {
-  'Food & Dining': '#10b981', // Emerald Metallic
-  'Shopping': '#f472b6',      // Rose Quartz
-  'Transport': '#38bdf8',     // Azure Platinum
-  'Bills & Utilities': '#f59e0b', // Amber Bronze
-  'Entertainment': '#a855f7', // Royal Amethyst
-  'Health': '#fb7185',        // Crimson Copper
-  'Travel': '#fbbf24',        // Golden Sand
-  'Others': '#94a3b8',        // Titanium Grey
+  'Food & Dining': '#10b981', 
+  'Shopping': '#f472b6',      
+  'Transport': '#38bdf8',     
+  'Bills & Utilities': '#f59e0b', 
+  'Entertainment': '#a855f7', 
+  'Health': '#fb7185',        
+  'Travel': '#fbbf24',        
+  'Others': '#94a3b8',        
 };

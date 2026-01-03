@@ -1,93 +1,100 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Transaction, SpendingInsight } from "../types";
+import { Transaction, SpendingInsight, UserProfile } from "../types";
 
-// Safety check for initialization
-const apiKey = process.env.API_KEY || "";
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const getFinancialInsights = async (transactions: Transaction[]): Promise<SpendingInsight> => {
-  if (!ai) {
-    return {
-      summary: "AI services are currently offline. Please configure API_KEY in deployment settings.",
-      recommendations: ["Check your environment variables."],
-      savingOpportunities: "Missing Google Gemini credentials."
-    };
-  }
+export const getFinancialInsights = async (
+  transactions: Transaction[], 
+  profile: UserProfile
+): Promise<SpendingInsight> => {
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
 
-  if (transactions.length === 0) {
-    return {
-      summary: "Your premium financial journey begins here. Start logging to unlock AI insights.",
-      recommendations: ["Log your first transaction."],
-      savingOpportunities: "Insights will appear once spending patterns are established."
-    };
-  }
+  const currentMonthData = transactions.filter(t => new Date(t.date).getMonth() === currentMonth);
+  const lastMonthData = transactions.filter(t => new Date(t.date).getMonth() === lastMonth);
 
-  const categoryTotals = transactions.reduce((acc, t) => {
+  const getCatTotals = (txs: Transaction[]) => txs.reduce((acc, t) => {
     acc[t.category] = (acc[t.category] || 0) + t.amount;
     return acc;
   }, {} as Record<string, number>);
 
-  const transactionsSummary = transactions
-    .map(t => `${t.date}: ${t.description} (${t.category}) - ₹${t.amount}`)
-    .join('\n');
+  const currentTotals = getCatTotals(currentMonthData);
+  const lastTotals = getCatTotals(lastMonthData);
 
-  const categoriesStr = Object.entries(categoryTotals)
-    .map(([cat, total]) => `${cat}: ₹${total.toFixed(2)}`)
-    .join(', ');
+  const comparisonString = Object.keys(currentTotals).map(cat => {
+    const curr = currentTotals[cat] || 0;
+    const prev = lastTotals[cat] || 0;
+    if (prev > 0) {
+      const diff = curr - prev;
+      return `${cat}: Last Month ₹${prev}, This Month ₹${curr} (${diff > 0 ? 'INCREASED' : 'DECREASED'} by ₹${Math.abs(diff)})`;
+    }
+    return `${cat}: This Month ₹${curr}`;
+  }).join('\n');
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Analyze these transactions for an Indian user and provide aggressive, specific financial advice.\nCategory Totals: ${categoriesStr}\nDetailed Log:\n${transactionsSummary}`,
+      model: "gemini-3-pro-preview",
+      contents: `
+        USER PROFILE:
+        Income: ₹${profile.monthlyIncome} per month
+        Housing: ${profile.housingStatus === 'rented' ? 'Renting (has monthly rent burden)' : 'Owns house (no rent)'}
+        
+        USER-DEFINED TACTICAL TARGETS (MONTHLY):
+        - Rent/Mortgage Target: ₹${profile.baselineRent}
+        - Grocery Target: ₹${profile.baselineGroceries}
+        - Utilities Target: ₹${profile.baselineUtilities}
+        
+        MONTH-OVER-MONTH ACTUAL ANALYSIS:
+        ${comparisonString}
+        
+        TOTAL TRANSACTIONS LOGGED:
+        ${transactions.map(t => `${t.date}: ${t.description} (${t.category}) - ₹${t.amount}`).join('\n')}
+      `,
       config: {
-        systemInstruction: `You are an elite Indian wealth manager and brutal financial optimizer. 
-        Analyze the user's spending data and provide:
-        1. A blunt summary of their spending habits in the Indian context.
-        2. 3-5 HIGHLY SPECIFIC, actionable tips using ₹. 
-           - If Petrol/Fuel spend is high, suggest using the Metro, local buses, or switching to an EV/CNG.
-           - If 'Food & Dining' is high, suggest using local 'Mandis' instead of premium supermarkets or cutting down on Swiggy/Zomato.
-           - If 'Shopping' is high, suggest waiting for Great Indian Festival sales or using specific credit card reward points.
-           - Be aggressive with numbers. If they spend ₹5000 on coffee, tell them that's ₹60,000 a year wasted.
-        3. Identify the single largest 'leak' in their budget.`,
+        systemInstruction: `You are an elite Indian Financial Strategist. 
+        Compare actual spending against the USER-DEFINED TACTICAL TARGETS.
+        
+        STRICT RULES:
+        1. Explicitly mention if their actual Rent/Utilities/Groceries exceeded their targets.
+        2. Calculate a 'Budget Adherence Score' based on how close they are to their targets.
+        3. Suggest specific cuts if they are >10% over their grocery target.
+        4. Be direct and professional.
+        
+        Format the response in pure JSON.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            summary: { type: Type.STRING, description: "A blunt summary of spending habits." },
-            recommendations: { 
-              type: Type.ARRAY, 
-              items: { type: Type.STRING },
-              description: "Specific actionable tips based on transaction amounts in INR." 
-            },
-            savingOpportunities: { type: Type.STRING, description: "The single biggest budget leak identified." }
+            summary: { type: Type.STRING },
+            recommendations: { type: Type.ARRAY, items: { type: Type.STRING } },
+            savingOpportunities: { type: Type.STRING },
+            budgetAdherence: { type: Type.NUMBER }
           },
-          required: ["summary", "recommendations", "savingOpportunities"],
-          propertyOrdering: ["summary", "recommendations", "savingOpportunities"]
+          required: ["summary", "recommendations", "savingOpportunities", "budgetAdherence"]
         },
       },
     });
 
     return JSON.parse(response.text || '{}') as SpendingInsight;
   } catch (error) {
-    console.error("Gemini Insights Error:", error);
+    console.error("Gemini Error:", error);
     return {
-      summary: "Wealth optimization analysis currently unavailable.",
-      recommendations: ["Monitor your high-spending categories manually."],
-      savingOpportunities: "Check your largest recurring costs."
+      summary: "Analysis engine encountered an error.",
+      recommendations: ["Ensure your API key is valid.", "Check internet connection."],
+      savingOpportunities: "Retry in a few moments.",
+      budgetAdherence: 50
     };
   }
 };
 
 export const suggestCategory = async (description: string): Promise<string> => {
-  if (!ai) return "Others";
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Description: "${description}". Select the best category from: Food & Dining, Shopping, Transport, Bills & Utilities, Entertainment, Health, Travel, Others.`,
-      config: {
-        systemInstruction: "Respond ONLY with the category name.",
-      },
+      contents: `Description: "${description}". Select category: Food & Dining, Shopping, Transport, Bills & Utilities, Entertainment, Health, Travel, Others.`,
+      config: { systemInstruction: "Respond with Category name ONLY." },
     });
     return response.text?.trim() || "Others";
   } catch {

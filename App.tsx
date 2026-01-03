@@ -1,353 +1,351 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Transaction, SpendingInsight } from './types';
+import { Transaction, SpendingInsight, UserProfile, ViewState, Theme } from './types';
 import { TransactionForm } from './components/TransactionForm';
 import { TransactionList } from './components/TransactionList';
 import { Analytics } from './components/Analytics';
 import { getFinancialInsights } from './services/geminiService';
-import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1
-    }
-  }
-};
-
-const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { 
-    opacity: 1, 
-    y: 0,
-    transition: { type: "spring" as const, stiffness: 300, damping: 30 }
-  }
-};
+const MOCK_AVATARS = [
+  'https://i.pravatar.cc/150?u=a',
+  'https://i.pravatar.cc/150?u=b',
+  'https://i.pravatar.cc/150?u=c',
+  'https://i.pravatar.cc/150?u=d',
+  'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
+  'https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka'
+];
 
 const App: React.FC = () => {
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    try {
-      const saved = localStorage.getItem('smarttrack_v5_in');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      console.error("Corrupted local storage detected:", e);
-      return [];
-    }
+  const [view, setView] = useState<ViewState>('auth');
+  const [theme, setTheme] = useState<Theme>(() => {
+    return (localStorage.getItem('st_theme') as Theme) || 'dark';
   });
+  
+  const [profile, setProfile] = useState<UserProfile>(() => {
+    const saved = localStorage.getItem('st_profile_v1');
+    return saved ? JSON.parse(saved) : { 
+      name: '', 
+      monthlyIncome: 0, 
+      housingStatus: 'rented', 
+      baselineRent: 0,
+      baselineGroceries: 0,
+      baselineUtilities: 0,
+      setupComplete: false,
+      isAuthenticated: false,
+      picture: MOCK_AVATARS[0]
+    };
+  });
+
+  const [onboardingStep, setOnboardingStep] = useState(1);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => {
+    const saved = localStorage.getItem('st_tx_v1');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [insight, setInsight] = useState<SpendingInsight | null>(null);
   const [isInsightLoading, setIsInsightLoading] = useState(false);
 
-  useEffect(() => {
-    localStorage.setItem('smarttrack_v5_in', JSON.stringify(transactions));
-  }, [transactions]);
-
-  const fetchInsights = useCallback(async () => {
-    if (transactions.length === 0) return;
-    setIsInsightLoading(true);
-    try {
-      const result = await getFinancialInsights(transactions);
-      setInsight(result);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsInsightLoading(false);
-    }
-  }, [transactions]);
-
-  useEffect(() => {
-    fetchInsights();
-  }, [fetchInsights]);
+  const totalSpent = transactions.reduce((acc, t) => acc + t.amount, 0);
 
   const addTransaction = (newTx: Omit<Transaction, 'id'>) => {
-    const tx: Transaction = {
+    const transaction: Transaction = {
       ...newTx,
-      id: Math.random().toString(36).substring(2, 9)
+      id: Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
     };
-    setTransactions(prev => [tx, ...prev]);
+    setTransactions(prev => [transaction, ...prev]);
   };
 
   const deleteTransaction = (id: string) => {
     setTransactions(prev => prev.filter(t => t.id !== id));
   };
 
-  const totalSpent = transactions.reduce((acc, curr) => acc + curr.amount, 0);
-  const healthScore = transactions.length > 0 ? 94 : 0;
+  useEffect(() => {
+    const html = document.documentElement;
+    html.className = theme;
+    localStorage.setItem('st_theme', theme);
+  }, [theme]);
 
-  // Global environment check
-  if (!process.env.API_KEY) {
-    console.warn("SmartTrack Warning: process.env.API_KEY is missing. AI features will be disabled.");
+  useEffect(() => {
+    localStorage.setItem('st_profile_v1', JSON.stringify(profile));
+    if (profile.isAuthenticated) {
+      if (profile.setupComplete && view === 'auth') setView('dashboard');
+      else if (!profile.setupComplete && view === 'auth') setView('onboarding');
+    }
+  }, [profile, view]);
+
+  useEffect(() => {
+    localStorage.setItem('st_tx_v1', JSON.stringify(transactions));
+  }, [transactions]);
+
+  const fetchInsights = useCallback(async () => {
+    if (!profile.setupComplete || transactions.length === 0) return;
+    setIsInsightLoading(true);
+    try {
+      const result = await getFinancialInsights(transactions, profile);
+      setInsight(result);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsInsightLoading(false);
+    }
+  }, [transactions, profile]);
+
+  useEffect(() => {
+    if (view === 'dashboard') fetchInsights();
+  }, [view, fetchInsights]);
+
+  const handleLogin = () => {
+    setProfile(prev => ({
+      ...prev,
+      name: 'Aditya Kumar',
+      email: 'aditya.k@gmail.com',
+      isAuthenticated: true
+    }));
+    setView('landing');
+  };
+
+  const handleLogout = () => {
+    if(confirm("Sign out and clear secure session?")) {
+      setProfile({
+        name: '', 
+        monthlyIncome: 0, 
+        housingStatus: 'rented', 
+        baselineRent: 0,
+        baselineGroceries: 0,
+        baselineUtilities: 0,
+        setupComplete: false,
+        isAuthenticated: false,
+        picture: MOCK_AVATARS[0]
+      });
+      setView('auth');
+    }
+  };
+
+  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+
+  // --- VIEWS ---
+
+  if (view === 'auth') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8 bg-white dark:bg-black transition-colors">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass p-12 rounded-[3.5rem] w-full max-w-md text-center"
+        >
+          <div className="w-20 h-20 gold-gradient rounded-3xl mx-auto flex items-center justify-center text-black font-black text-3xl mb-8 shadow-2xl">ST</div>
+          <h1 className="text-3xl font-black tracking-tighter uppercase gold-text-gradient italic mb-2">SmartTrack</h1>
+          <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-[0.3em] mb-12">Secure Cloud Intelligence</p>
+          
+          <button 
+            onClick={handleLogin}
+            className="w-full flex items-center justify-center gap-4 py-5 bg-white border border-neutral-200 dark:border-white/10 dark:bg-neutral-900 rounded-3xl text-sm font-bold shadow-xl hover:scale-[1.02] transition-transform text-black dark:text-white"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Sign in with Google
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (view === 'landing') {
+    return (
+      <div className="min-h-screen bg-white dark:bg-black flex flex-col items-center justify-center p-8 transition-colors">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center relative z-10">
+          <div className="w-24 h-24 gold-gradient rounded-3xl mx-auto flex items-center justify-center text-black font-black text-4xl mb-12 shadow-2xl">ST</div>
+          <h1 className="text-6xl font-black italic gold-text-gradient tracking-tighter uppercase mb-4">SmartTrack Pro</h1>
+          <p className="text-neutral-500 font-black uppercase tracking-[0.5em] text-xs mb-16">System Ready for {profile.name}</p>
+          <button onClick={() => setView(profile.setupComplete ? 'dashboard' : 'onboarding')} className="px-16 py-6 bg-black text-white dark:bg-white dark:text-black font-black uppercase tracking-widest text-sm rounded-full shadow-2xl hover:bg-amber-500 transition-colors">Initialize</button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (view === 'onboarding') {
+    return (
+      <div className="min-h-screen bg-white dark:bg-black flex items-center justify-center p-8 transition-colors">
+        <motion.div layout className="glass p-12 rounded-[4rem] w-full max-w-2xl">
+          <div className="flex gap-2 mb-10">
+            {[1, 2, 3].map(step => (
+              <div key={step} className={`h-1 flex-1 rounded-full transition-colors ${onboardingStep >= step ? 'bg-amber-500' : 'bg-neutral-200 dark:bg-neutral-800'}`}></div>
+            ))}
+          </div>
+
+          <AnimatePresence mode="wait">
+            {onboardingStep === 1 && (
+              <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                <h2 className="text-3xl font-black gold-text-gradient uppercase mb-8">Identity Matrix</h2>
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Legal Name Identifier</label>
+                  <input type="text" className="w-full bg-neutral-100 dark:bg-black border border-neutral-200 dark:border-neutral-800 p-5 rounded-2xl outline-none text-black dark:text-white font-bold" value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} placeholder="Aditya Kumar" />
+                  <button disabled={!profile.name} onClick={() => setOnboardingStep(2)} className="w-full py-6 gold-gradient text-black font-black uppercase rounded-3xl mt-8 disabled:opacity-30">Next Phase</button>
+                </div>
+              </motion.div>
+            )}
+
+            {onboardingStep === 2 && (
+              <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                <h2 className="text-3xl font-black gold-text-gradient uppercase mb-8">Economic Foundation</h2>
+                <div className="space-y-6">
+                  <div>
+                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest block mb-2">Monthly Yield (₹)</label>
+                    <input type="number" className="w-full bg-neutral-100 dark:bg-black border border-neutral-200 dark:border-neutral-800 p-5 rounded-2xl outline-none text-black dark:text-white font-mono text-xl font-black" value={profile.monthlyIncome || ''} onChange={e => setProfile({...profile, monthlyIncome: Number(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest block mb-2">Housing Protocol</label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <button onClick={() => setProfile({...profile, housingStatus: 'rented'})} className={`p-5 rounded-2xl font-black uppercase text-[10px] border transition-all ${profile.housingStatus === 'rented' ? 'bg-amber-600 border-amber-600 text-black' : 'bg-transparent border-neutral-200 dark:border-neutral-800 text-neutral-400'}`}>Rented</button>
+                      <button onClick={() => setProfile({...profile, housingStatus: 'owned'})} className={`p-5 rounded-2xl font-black uppercase text-[10px] border transition-all ${profile.housingStatus === 'owned' ? 'bg-amber-600 border-amber-600 text-black' : 'bg-transparent border-neutral-200 dark:border-neutral-800 text-neutral-400'}`}>Owned</button>
+                    </div>
+                  </div>
+                  <div className="flex gap-4 mt-8">
+                    <button onClick={() => setOnboardingStep(1)} className="flex-1 py-6 bg-neutral-200 dark:bg-neutral-900 text-neutral-600 font-black uppercase rounded-3xl">Back</button>
+                    <button disabled={!profile.monthlyIncome} onClick={() => setOnboardingStep(3)} className="flex-1 py-6 gold-gradient text-black font-black uppercase rounded-3xl">Next Phase</button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {onboardingStep === 3 && (
+              <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                <h2 className="text-3xl font-black gold-text-gradient uppercase mb-8">Tactical Targets</h2>
+                <div className="space-y-4">
+                   <p className="text-[10px] text-neutral-500 font-bold uppercase mb-6 italic">Define expected monthly costs for AI calibration.</p>
+                   <div>
+                    <label className="text-[9px] font-black text-neutral-400 uppercase tracking-widest block mb-1">Rent / EMI Baseline (₹)</label>
+                    <input type="number" className="w-full bg-neutral-100 dark:bg-black border border-neutral-200 dark:border-neutral-800 p-4 rounded-xl text-black dark:text-white font-mono" value={profile.baselineRent || ''} onChange={e => setProfile({...profile, baselineRent: Number(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-neutral-400 uppercase tracking-widest block mb-1">Groceries Baseline (₹)</label>
+                    <input type="number" className="w-full bg-neutral-100 dark:bg-black border border-neutral-200 dark:border-neutral-800 p-4 rounded-xl text-black dark:text-white font-mono" value={profile.baselineGroceries || ''} onChange={e => setProfile({...profile, baselineGroceries: Number(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black text-neutral-400 uppercase tracking-widest block mb-1">Utilities Baseline (₹)</label>
+                    <input type="number" className="w-full bg-neutral-100 dark:bg-black border border-neutral-200 dark:border-neutral-800 p-4 rounded-xl text-black dark:text-white font-mono" value={profile.baselineUtilities || ''} onChange={e => setProfile({...profile, baselineUtilities: Number(e.target.value)})} />
+                  </div>
+                  <div className="flex gap-4 mt-8">
+                    <button onClick={() => setOnboardingStep(2)} className="flex-1 py-6 bg-neutral-200 dark:bg-neutral-900 text-neutral-600 font-black uppercase rounded-3xl">Back</button>
+                    <button onClick={() => { setProfile({...profile, setupComplete: true}); setView('dashboard'); }} className="flex-1 py-6 gold-gradient text-black font-black uppercase rounded-3xl">Complete Calibration</button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (view === 'profile') {
+    return (
+      <div className="min-h-screen bg-white dark:bg-black p-8 transition-colors">
+        <header className="max-w-4xl mx-auto flex justify-between items-center mb-16">
+          <button onClick={() => setView('dashboard')} className="flex items-center gap-3 text-neutral-500 font-black uppercase text-[10px] hover:text-amber-500 transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7"></path></svg>
+            Return to Core
+          </button>
+          <h2 className="text-xl font-black italic gold-text-gradient uppercase">Identity Matrix</h2>
+        </header>
+
+        <main className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
+          <div className="md:col-span-1 space-y-8">
+            <div className="relative group">
+              <img src={profile.picture} className="w-full aspect-square rounded-[3rem] object-cover border-4 border-amber-500 shadow-2xl" alt="Avatar" />
+              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-[3rem] flex items-center justify-center">
+                <p className="text-white font-black uppercase text-[10px] tracking-widest">Agent Active</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {MOCK_AVATARS.map((url, i) => (
+                <button key={i} onClick={() => setProfile({...profile, picture: url})} className={`aspect-square rounded-xl overflow-hidden border-2 transition-all ${profile.picture === url ? 'border-amber-500 scale-105' : 'border-transparent opacity-40 hover:opacity-100'}`}>
+                  <img src={url} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="md:col-span-2 glass p-10 rounded-[4rem] space-y-8">
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Public Identifier</label>
+              <input type="text" className="w-full bg-neutral-100 dark:bg-black border border-neutral-200 dark:border-neutral-800 p-5 rounded-2xl outline-none text-black dark:text-white font-bold" value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} />
+            </div>
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Custom Avatar URL</label>
+              <input type="text" className="w-full bg-neutral-100 dark:bg-black border border-neutral-200 dark:border-neutral-800 p-5 rounded-2xl outline-none text-black dark:text-white text-xs font-mono" value={profile.picture} onChange={e => setProfile({...profile, picture: e.target.value})} placeholder="https://..." />
+            </div>
+            <div className="pt-8 border-t border-black/5 dark:border-white/5 space-y-4">
+              <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                <span>Cloud Status</span>
+                <span className="text-green-500 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div> Encrypted</span>
+              </div>
+              <p className="text-[11px] text-neutral-500 leading-relaxed italic">Your identity is cryptographically linked to your local instance and synchronized with secure cloud relay {profile.email}.</p>
+            </div>
+            <button onClick={() => setView('dashboard')} className="w-full py-5 gold-gradient text-black font-black uppercase rounded-2xl shadow-xl hover:scale-[1.02] transition-transform">Commit Changes</button>
+          </div>
+        </main>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-[#020202] text-white selection:bg-amber-500/30 font-inter">
-      {/* Background Energy Glows */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none opacity-20">
-        <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-amber-900/20 blur-[150px] rounded-full"></div>
-        <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-orange-900/10 blur-[150px] rounded-full"></div>
-      </div>
-
-      <header className="border-b border-white/5 bg-black/80 backdrop-blur-3xl sticky top-0 z-50 overflow-hidden">
-        <motion.div 
-          initial={{ y: -100 }}
-          animate={{ y: 0 }}
-          transition={{ type: "spring" as const, stiffness: 100, damping: 20 }}
-          className="max-w-7xl mx-auto px-8 h-24 flex items-center justify-between"
-        >
-          <div className="flex items-center gap-5 group cursor-default">
-            <motion.div 
-              whileHover={{ rotate: 180, scale: 1.1 }}
-              transition={{ type: "spring", stiffness: 200 }}
-              className="w-12 h-12 gold-gradient rounded-2xl flex items-center justify-center text-black font-black text-2xl shadow-[0_0_40px_rgba(217,119,6,0.5)]"
-            >
-              ST
-            </motion.div>
+    <div className="min-h-screen bg-white dark:bg-black text-black dark:text-white transition-colors">
+      <header className="border-b border-black/5 dark:border-white/5 bg-white/80 dark:bg-black/80 backdrop-blur-3xl sticky top-0 z-50 transition-colors">
+        <div className="max-w-7xl mx-auto px-8 h-24 flex items-center justify-between">
+          <div className="flex items-center gap-5">
+            <div className="w-12 h-12 gold-gradient rounded-2xl flex items-center justify-center text-black font-black text-2xl">ST</div>
             <div>
-              <h1 className="text-2xl font-black tracking-tighter uppercase italic gold-text-gradient leading-none group-hover:tracking-normal transition-all duration-500">
-                SmartTrack Pro
-              </h1>
-              <p className="text-[9px] text-neutral-500 font-black uppercase tracking-[0.4em] mt-1">Institutional Intelligence</p>
+              <h1 className="text-xl font-black italic gold-text-gradient leading-none">SmartTrack</h1>
+              <p className="text-[9px] text-neutral-400 font-black uppercase tracking-[0.4em] mt-1">{profile.email}</p>
             </div>
           </div>
           
-          <motion.button 
-            whileHover={{ scale: 1.05, y: -2, boxShadow: "0 10px 30px rgba(245,158,11,0.2)" }}
-            whileTap={{ scale: 0.95 }}
-            onClick={fetchInsights}
-            disabled={isInsightLoading}
-            className="px-8 py-3 bg-neutral-900 border border-white/5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] text-amber-500 hover:bg-neutral-800 transition-all flex items-center gap-3 shadow-lg"
-          >
-            <svg className={`w-3.5 h-3.5 ${isInsightLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-            Refine Protocols
-          </motion.button>
-        </motion.div>
+          <div className="flex items-center gap-4">
+            <button onClick={toggleTheme} className="p-3 bg-neutral-100 dark:bg-neutral-900 border border-black/5 dark:border-white/5 rounded-full text-neutral-500 hover:text-amber-500 transition-all">
+              {theme === 'dark' ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>}
+            </button>
+            <div className="flex items-center gap-4 pl-4 border-l border-black/5 dark:border-white/5">
+               <button onClick={() => setView('profile')} className="relative group">
+                 <img src={profile.picture} className="w-10 h-10 rounded-full border-2 border-amber-500 shadow-lg group-hover:scale-110 transition-transform" alt="Profile" />
+               </button>
+               <button onClick={handleLogout} className="text-[9px] font-black uppercase tracking-widest text-neutral-400 hover:text-red-500 transition-colors">Sign Out</button>
+            </div>
+          </div>
+        </div>
       </header>
 
-      <motion.main 
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        className="max-w-7xl mx-auto px-8 py-12 relative"
-      >
+      <main className="max-w-7xl mx-auto px-8 py-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-          
           <div className="lg:col-span-8 space-y-12">
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <motion.div 
-                variants={itemVariants}
-                whileHover={{ y: -8, scale: 1.02, transition: { type: "spring", stiffness: 400, damping: 25 } }}
-                className="glass p-10 rounded-[3.5rem] shadow-2xl relative overflow-hidden group cursor-default"
-              >
-                <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-600/5 rounded-full blur-[80px] group-hover:bg-amber-600/15 transition-all duration-700"></div>
-                <span className="text-amber-600/60 text-[10px] font-black uppercase tracking-[0.3em] mb-3 block">Aggregate Outflow</span>
-                <AnimatePresence mode="wait">
-                  <motion.p 
-                    key={totalSpent}
-                    initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    className="text-5xl font-black text-white tracking-tighter mb-6"
-                  >
-                    ₹{totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </motion.p>
-                </AnimatePresence>
-                <div className="flex items-center gap-3">
-                  <span className="px-4 py-1.5 bg-amber-600/10 text-amber-600 text-[9px] font-black rounded-full border border-amber-600/20 uppercase tracking-tighter">Verified Stream</span>
-                  <span className="text-[9px] text-neutral-600 font-bold uppercase tracking-widest">{transactions.length} Cycles</span>
-                </div>
+              <motion.div whileHover={{ y: -5 }} className="glass p-10 rounded-[3.5rem] bg-white/50 dark:bg-white/5">
+                <span className="text-amber-600/60 text-[10px] font-black uppercase tracking-[0.3em] mb-3 block">Utilization</span>
+                <p className="text-5xl font-black tracking-tighter mb-4 text-black dark:text-white">₹{totalSpent.toLocaleString('en-IN')}</p>
+                <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest">{((totalSpent/profile.monthlyIncome)*100).toFixed(1)}% of Yield</p>
               </motion.div>
-              
-              <motion.div 
-                variants={itemVariants}
-                whileHover={{ y: -8, scale: 1.02, transition: { type: "spring", stiffness: 400, damping: 25 } }}
-                className="glass p-10 rounded-[3.5rem] shadow-2xl flex flex-col justify-between cursor-default"
-              >
+              <motion.div whileHover={{ y: -5 }} className="glass p-10 rounded-[3.5rem] flex flex-col justify-between bg-white/50 dark:bg-white/5">
                 <div>
-                  <span className="text-neutral-600 text-[10px] font-black uppercase tracking-[0.3em] mb-2 block">Stability Factor</span>
-                  <p className="text-2xl font-black text-neutral-200 tracking-tight italic">Resource Velocity</p>
-                  <div className="h-2 w-full bg-black rounded-full mt-8 overflow-hidden border border-white/5 p-0.5">
-                    <motion.div 
-                      initial={{ width: 0 }}
-                      animate={{ width: transactions.length > 0 ? '78%' : '0%' }}
-                      transition={{ duration: 1.5, ease: "easeOut" }}
-                      className="h-full bg-amber-600 rounded-full shadow-[0_0_20px_rgba(217,119,6,0.6)]"
-                    ></motion.div>
-                  </div>
+                  <span className="text-neutral-400 text-[10px] font-black uppercase tracking-[0.3em] mb-2 block">System Resilience</span>
+                  <div className="h-2 w-full bg-neutral-200 dark:bg-black rounded-full mt-8 overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: insight ? `${insight.budgetAdherence}%` : '50%' }} className="h-full bg-amber-600"></motion.div></div>
                 </div>
-                <span className="text-[9px] text-neutral-600 font-black uppercase tracking-[0.2em] mt-6 flex items-center gap-2">
-                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]"></span> Nominal
-                </span>
+                <p className="text-lg font-black italic gold-text-gradient mt-6">Safety Score: {insight?.budgetAdherence || 0}%</p>
               </motion.div>
             </div>
-
-            <motion.div 
-              variants={itemVariants}
-              whileHover={{ y: -5, transition: { type: "spring", stiffness: 400, damping: 25 } }}
-              className="bg-gradient-to-br from-[#0a0a0a] to-black p-10 rounded-[4rem] border border-white/5 shadow-3xl relative overflow-hidden group"
-            >
-              <div className="absolute top-0 right-0 w-64 h-64 bg-amber-600/5 blur-[120px] pointer-events-none group-hover:bg-amber-600/10 transition-colors"></div>
-              <div className="flex items-center gap-5 mb-10">
-                <motion.div 
-                  whileHover={{ rotate: 360 }}
-                  transition={{ duration: 0.8 }}
-                  className="w-14 h-14 bg-amber-600 rounded-2xl flex items-center justify-center text-black shadow-[0_0_30px_rgba(217,119,6,0.3)]"
-                >
-                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                </motion.div>
-                <div>
-                  <h2 className="text-2xl font-black italic tracking-tighter uppercase gold-text-gradient">Advisory Neural Link</h2>
-                  <p className="text-[10px] text-neutral-600 font-black uppercase tracking-[0.3em]">AI Synthesis Ready</p>
-                </div>
-              </div>
-              
-              {!process.env.API_KEY ? (
-                <div className="py-8 text-amber-500/50 text-xs font-mono uppercase tracking-widest text-center border border-amber-500/10 rounded-3xl p-4">
-                  [ System Warning: AI Insight Engine Offline ]<br/>
-                  Configuration Error: Missing API_KEY in Environment
-                </div>
-              ) : isInsightLoading ? (
-                <div className="space-y-6 animate-pulse">
-                  <div className="h-4 bg-neutral-800/50 rounded-full w-full"></div>
-                  <div className="h-4 bg-neutral-800/50 rounded-full w-2/3"></div>
-                  <div className="grid grid-cols-2 gap-8 mt-12">
-                    <div className="h-40 bg-neutral-800/20 rounded-[2.5rem]"></div>
-                    <div className="h-40 bg-neutral-800/20 rounded-[2.5rem]"></div>
-                  </div>
-                </div>
-              ) : insight ? (
-                <div className="space-y-10">
-                  <motion.p 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-neutral-400 leading-relaxed text-sm font-medium italic border-l-4 border-amber-600 pl-6 py-2"
-                  >
-                    {insight.summary}
-                  </motion.p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    <motion.div 
-                      whileHover={{ scale: 1.05, y: -4 }}
-                      className="p-8 bg-black/40 rounded-[3rem] border border-amber-900/20 hover:border-amber-600/40 transition-all shadow-xl"
-                    >
-                      <span className="text-amber-500 font-black text-[10px] uppercase tracking-[0.3em] mb-5 block">Asset Leakage</span>
-                      <p className="text-base text-neutral-100 leading-relaxed font-black tracking-tight">{insight.savingOpportunities}</p>
-                    </motion.div>
-                    <div className="space-y-4">
-                      <span className="text-[10px] text-neutral-600 font-black uppercase tracking-[0.3em] mb-4 block">Strategic Directives</span>
-                      {insight.recommendations.map((rec, i) => (
-                        <motion.div 
-                          key={i}
-                          initial={{ opacity: 0, x: 10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.4 + (i * 0.1) }}
-                          className="flex gap-4 text-xs text-neutral-400 items-start group/rec"
-                        >
-                          <span className="w-5 h-5 rounded-lg bg-amber-600/5 border border-amber-600/20 flex items-center justify-center text-amber-500 text-[10px] font-black shrink-0 mt-0.5 group-hover/rec:bg-amber-600 group-hover/rec:text-black transition-all">{i+1}</span>
-                          <span className="font-bold leading-relaxed group-hover/rec:text-neutral-200 transition-colors">{rec}</span>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-16 text-center text-neutral-800 font-black uppercase tracking-[0.5em] italic opacity-50">
-                  Syncing Metadata
-                </div>
-              )}
-            </motion.div>
-
-            <motion.div variants={itemVariants} className="space-y-8">
-               <div className="flex items-center gap-4 px-2">
-                 <h2 className="text-xl font-black italic tracking-tighter uppercase gold-text-gradient">Market Visuals</h2>
-                 <div className="h-px bg-white/5 flex-grow"></div>
-               </div>
-               <Analytics transactions={transactions} />
-            </motion.div>
-
-            <motion.div variants={itemVariants} className="space-y-8">
-              <div className="flex items-center justify-between px-2">
-                <h2 className="text-xl font-black italic tracking-tighter uppercase gold-text-gradient">Financial Feed</h2>
-                <div className="flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                   <span className="text-[9px] font-black text-neutral-600 uppercase tracking-[0.3em]">Encrypted Stream</span>
-                </div>
-              </div>
-              <TransactionList transactions={transactions} onDelete={deleteTransaction} />
-            </motion.div>
-          </div>
-
-          <div className="lg:col-span-4 space-y-12">
-            <div className="sticky top-36">
-              <div className="mb-12">
-                <TransactionForm onAdd={addTransaction} />
-              </div>
-              
-              {/* Refined Vitality Quotient Section */}
-              <motion.div 
-                variants={itemVariants}
-                whileHover={{ y: -10, scale: 1.02, transition: { type: "spring", stiffness: 400, damping: 25 } }}
-                className="glass p-10 rounded-[3.5rem] shadow-3xl text-center relative overflow-hidden group cursor-default"
-              >
-                {/* Visual Flair Background */}
-                <div className="absolute inset-0 bg-gradient-to-b from-amber-600/5 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                
-                <h3 className="text-[10px] font-black italic tracking-[0.4em] uppercase text-neutral-600 mb-10 relative z-10">Resilience Core</h3>
-                
-                <div className="relative w-56 h-56 mx-auto flex items-center justify-center">
-                  {/* Rotating Glass Rings */}
-                  <div className="absolute inset-0 border-[0.5px] border-white/5 rounded-full animate-rotate-slow"></div>
-                  <div className="absolute inset-2 border-[1px] border-amber-600/10 rounded-full animate-rotate-reverse"></div>
-                  <div className="absolute inset-4 border-[0.5px] border-white/5 rounded-full animate-rotate-slow" style={{ animationDuration: '30s' }}></div>
-                  
-                  {/* Outer Glowing Ring */}
-                  <svg className="absolute inset-0 w-full h-full transform -rotate-90">
-                    <circle cx="112" cy="112" r="104" stroke="currentColor" strokeWidth="2" fill="transparent" className="text-white/5" />
-                    <motion.circle 
-                      initial={{ strokeDashoffset: 654 }}
-                      animate={{ strokeDashoffset: 654 - (654 * (healthScore / 100)) }}
-                      transition={{ duration: 2.5, ease: "circOut" }}
-                      cx="112" cy="112" r="104" stroke="currentColor" strokeWidth="8" fill="transparent" strokeDasharray="654" className="text-amber-600 shadow-[0_0_30px_rgba(217,119,6,0.6)]" 
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  
-                  {/* Energy Inner Core */}
-                  <div className="absolute inset-8 bg-black/40 rounded-full backdrop-blur-md flex flex-col items-center justify-center border border-white/10 shadow-inner">
-                    <motion.div 
-                      animate={{ scale: [1, 1.05, 1], opacity: [0.6, 1, 0.6] }}
-                      transition={{ duration: 4, repeat: Infinity }}
-                      className="absolute inset-0 bg-amber-600/10 rounded-full blur-xl"
-                    ></motion.div>
-                    <span className="text-6xl font-black tracking-tighter italic gold-text-gradient relative z-10">{healthScore}</span>
-                    <span className="text-[10px] text-amber-500 font-black uppercase tracking-[0.3em] mt-2 relative z-10">Rating: Apex</span>
-                  </div>
-                </div>
-
-                <div className="mt-12 space-y-4 relative z-10">
-                  <p className="text-[11px] text-neutral-400 leading-relaxed font-bold px-4">
-                    Resource retention is <span className="text-amber-500 font-black">SUPERIOR</span>. Market behavior shows 99th percentile efficiency.
-                  </p>
-                  <motion.button 
-                    whileHover={{ scale: 1.05, y: -2 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="w-full bg-white/5 hover:bg-amber-600 hover:text-black border border-white/10 hover:border-amber-600 py-4 rounded-[2rem] text-[9px] font-black uppercase tracking-[0.4em] transition-all duration-300"
-                  >
-                    Generate Portfolio Audit
-                  </motion.button>
-                </div>
-              </motion.div>
+            <div className="glass p-10 rounded-[4rem] border border-black/5 dark:border-white/5 shadow-2xl transition-colors">
+              <div className="flex items-center gap-5 mb-10"><div className="w-14 h-14 bg-amber-600 rounded-2xl flex items-center justify-center text-black"><svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></div><div><h2 className="text-2xl font-black italic gold-text-gradient uppercase">Strategic Feedback</h2><p className="text-[10px] text-neutral-400 font-black uppercase tracking-[0.3em]">Synched with Cloud Records</p></div></div>
+              {isInsightLoading ? <div className="space-y-6 animate-pulse"><div className="h-4 bg-neutral-200 dark:bg-neutral-800 rounded-full w-full"></div><div className="h-4 bg-neutral-200 dark:bg-neutral-800 rounded-full w-2/3"></div></div> : insight ? <div className="space-y-10"><p className="text-neutral-500 dark:text-neutral-400 leading-relaxed text-sm font-medium italic border-l-4 border-amber-600 pl-6 py-2">{insight.summary}</p><div className="grid grid-cols-1 md:grid-cols-2 gap-10"><div className="p-8 bg-neutral-50 dark:bg-black/40 rounded-[3rem] border border-amber-900/10"><span className="text-amber-500 font-black text-[10px] uppercase tracking-[0.3em] mb-5 block">Opportunities</span><p className="text-sm text-neutral-700 dark:text-neutral-100 font-black leading-relaxed">{insight.savingOpportunities}</p></div><div className="space-y-4">{insight.recommendations.map((rec, i) => (<div key={i} className="flex gap-4 text-xs text-neutral-500 dark:text-neutral-400 items-start"><span className="w-5 h-5 rounded bg-amber-600 text-black flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">{i+1}</span><span className="font-bold leading-relaxed">{rec}</span></div>))}</div></div></div> : <p className="text-center py-12 text-neutral-300 dark:text-neutral-800 font-black uppercase tracking-widest italic opacity-50">Log transactions to reveal analysis</p>}
             </div>
+            <div className="space-y-12"><Analytics transactions={transactions} /><TransactionList transactions={transactions} onDelete={deleteTransaction} /></div>
           </div>
-
+          <div className="lg:col-span-4"><div className="sticky top-36"><TransactionForm onAdd={addTransaction} /></div></div>
         </div>
-      </motion.main>
-      
-      <footer className="max-w-7xl mx-auto px-8 py-32 border-t border-white/5 flex flex-col items-center opacity-50">
-        <div className="text-[10px] text-neutral-800 font-black uppercase tracking-[0.8em] mb-6">SmartTrack Pro • Obsidian Systems</div>
-        <p className="text-neutral-900 text-[10px] text-center max-w-lg font-bold leading-relaxed">
-          Proprietary Institutional Finance Protocol. All behavioral datasets encrypted via Neural Auth. © 2025 SmartTrack Pro.
-        </p>
-      </footer>
+      </main>
     </div>
   );
 };

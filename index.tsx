@@ -1,7 +1,10 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+// Polyfill process for browser environments to prevent "process is not defined" errors
+(window as any).process = (window as any).process || { env: {} };
+
+import App from './App.tsx';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
